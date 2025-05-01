@@ -1,0 +1,32 @@
+@Library("envconfig")
+import com.url.envconfig.k8sConfiguration
+K8sConfiguration envCfg = new K8sConfiguration(this)
+envCfg.populateForEnvironment("dev-mayhem", "")
+Map jc = envCfg.jenkinsCfg.credentialIds
+Map ps = envCfg.passwordstateCfg.secretIds
+def scmVars
+
+env.ARTIFACTORY_HELM_REPO_NAME = "helmchart"
+env.ARTIFACTORY_HELM_REPO_URL = envCfg.artifactoryHelmRepoUrl
+env.JOB_HELM_CHART_PATH = "deploy/k8s/charts/to-do-app"
+
+env.K8SCLI_IMAGE = defaultIfEmpty(params.K8SCLI_IMAGE, "docker.jfrog.io/projects/jenkins-agent/k8s-cli:1.18.5-12")
+podTemplate(yaml """
+---
+apiVersion: v1
+kind: Pod
+spec:
+    imagePullSecrets:
+     - name: artifactory-docker
+    containers:
+     - name: "k8s"
+     image: "${env.K8SCLI_IMAGE}"
+     command:
+     - "sleep"
+    args:
+     - "99999999" 
+""") {
+    node(POD_LABEL) {
+
+    }
+}

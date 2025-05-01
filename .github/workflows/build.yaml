@@ -1,0 +1,95 @@
+name: Build on PR
+
+on:
+  push:
+    branches:
+      - 'test-build'
+  pull_request_review:
+    types: [submitted]
+    branches-ignore:
+      - 'main'
+    branches-regex:
+      - '^features?/.*$'
+      - '^fix(es)?/.*$'
+      - '^dev(elopment)?.*$'
+
+env:
+  ARTIFACTORY_REGISTRY: 'foobar-docker.jfrog.io'
+  APP_NAME: 'to-do-app'
+  APP_BUILD: ${{github.run_number}}
+  BUILD_TYPE: ${{endsWith(github.head_ref, '-debug') && '-debug' || 'release'}}
+  IMAGE_TAG_POSTFIX: ${{endsWith(github.head_ref, '-debug') && '-debug' || ''}}
+  CHART_PATH: deploy/k8s/charts/to-do-app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event_name = 'push' || (github.event_name == 'pull_request_review' && github.event.review.state == 'approved')
+    strategy:
+      matrix:
+        node-version: [22.x]
+  
+  steps:
+    - name: 'Checkout code'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.ref }} # Checkout PR branch
+    
+    - name: 'Set up Node.js ${{ matrix.node-version }}'
+      uses: actions/setup-node$v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: 'Install dependencies and lint'
+      run: npm install && npm run lint-fix
+
+    - name: 'Run Jest tests'
+      run: npm run test-once
+    
+    - name: 'Get APP_VERSION from package.json'
+      id: get_app_version
+      run: |
+        APP_VERSION=$(NODE -P "require('./package.json').version")
+        echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
+        echo "Found App Version: $APP_VERSION"
+        # Update package.json version to include build
+        APP_VERSION_WITH_BUILD="$APP_VERSION-${{ env.APP_BUILD }}"
+        echo "APP_VERSION_WITH_BUILD=$APP_VERSION_WITH_BUILD" >> $GITHUB_OUTPUT # make APP_VERSION_WITH_BUILD available to other steps
+        npm run bump "${APP_VERSION_WITH_BUILD}"
+    
+    - name: 'Build Expo Web'
+      run: |
+        npx expo export --platform web
+      env:
+        APP_VERSION: ${{ steps.get_app_version.outputs.APP_VERSION_WITH_BUILD }}
+
+    - name: 'Log in to Artifactory'
+      run: docker login -u ${{secrets.ARTIFACTORY_USERNAME}} -p ${{secrets.ARTIFACTORY_PASSWORD}} ${{ env. ARTIFACTORY_REGISTRY}}
+    
+    - name: 'Build image in ${{env.BUILD_TYPE}} mode'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        tags: |
+          ${{ env.ARTIFACTORY_REGISTRY }}/${{ env.APP_NAME }}:${{ steps.get_app_version.outputs.APP_VERSION }}-${{ env.APP_BUILD }}${{ env.IMAGE_TAG_POSTFIX }}
+          ${{ env.ARTIFACTORY_REGISTRY }}/${{ env.APP_NAME }}:latest${{ env.IMAGE_TAG_POSTFIX }}
+        build-args: |
+          BUILD_TYPE=${{ env.BUILD_TYPE }}
+          ARTIFACTORY_REGISTRY=${{ env.ARTIFACTORY_REGISTRY }}
+          APP_NAME=${{ env.APP_NAME }}
+          APP_VERSION=${{ steps.get_app_version.outputs.APP_VERSION }}
+          APP_BUILD=${{ env.APP_BUILD }}
+      
+      env:
+        DOCKER_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+        PRIVATE_REPOS_ACCESS_TOKEN: ${{ secrets.PRIVATE_REPOS_ACCESS_TOKEN }}
+        APP_VERSION: ${{ steps.get_app_version.outputs.APP_VERSION }}
+
+    - name: 'Print uploaded image name'
+      run: |
+        echo "Successfully built and pushed image: ${{ steps.get_app_version.outputs.APP_VERSION_WITH_BUILD }}"
+      
