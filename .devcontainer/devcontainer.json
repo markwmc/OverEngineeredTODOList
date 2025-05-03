@@ -1,8 +1,0 @@
-{
-    "name":"Node.js & TypeScript",
-    "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
-    "forwardPorts": [8081],
-    "initializeCommand": "bash .devcontainer/initializeCommand.sh",
-    "postCreateCommand": "bash .devcontainer/posCreatecommand.sh",
-    "runArgs": ["-p=8081", "--env-file", ".devcontainer/.env"]
-}
