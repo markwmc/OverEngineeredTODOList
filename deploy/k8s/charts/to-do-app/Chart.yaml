@@ -1,0 +1,15 @@
+apiVersion: v2
+name: to-do-app
+description: OverEngineered TODO list
+type: application
+version: 1.0.0
+home:
+icon:
+sources:
+  
+keywords:
+  - web
+
+maintainer:
+  - name: Mark
+  - email: 
